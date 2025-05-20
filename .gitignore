@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+mise.toml
+examples/*.dot
+examples/*.png
+examples/*.txt
+.idea

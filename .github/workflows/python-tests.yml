@@ -1,0 +1,42 @@
+name: Python Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy pytest
+          pip install -e .
+
+      - name: Lint with ruff
+        run: |
+          # Run ruff but don't fail on error for now
+          ruff check . --output-format=github || echo "Linting issues found but continuing"
+
+      - name: Type check with mypy
+        run: |
+          # Run mypy but don't fail on error for now
+          mypy nolead tests || echo "Type check issues found but continuing"
+
+      - name: Test with pytest
+        run: |
+          pytest
