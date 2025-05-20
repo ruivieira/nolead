@@ -1,5 +1,7 @@
 # nolead
 
+[![Python Tests](https://github.com/ruivieira/nolead/actions/workflows/python-tests.yml/badge.svg)](https://github.com/ruivieira/nolead/actions/workflows/python-tests.yml)
+
 A lightweight pipeline orchestration library.
 
 ## Features
