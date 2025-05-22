@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo-min.png" alt="nolead logo">
+</p>
+
 # nolead
 
 [![Python Tests](https://github.com/ruivieira/nolead/actions/workflows/python-tests.yml/badge.svg)](https://github.com/ruivieira/nolead/actions/workflows/python-tests.yml)
