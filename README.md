@@ -10,6 +10,7 @@ A lightweight pipeline orchestration library.
 - Automatic dependency resolution with `uses()` function
 - Clean task completion with `done()` function
 - Single entry point to run entire pipelines with `run_task()`
+- Parameter passing between tasks, similar to Luigi
 
 ## Installation
 
@@ -53,7 +54,9 @@ if __name__ == "__main__":
 
 ## Advanced Usage
 
-You can also use named tasks:
+### Named Tasks
+
+You can use named tasks:
 
 ```python
 @Task(name="fetch_users")
@@ -65,7 +68,37 @@ def fetch_users():
 users = uses("fetch_users")
 ```
 
-Check out the `examples/` directory for more complex usage scenarios.
+### Parameter Passing
+
+Tasks can accept parameters, which can be passed in several ways:
+
+1. **Default parameters in function definitions**:
+```python
+@Task(name="process_data")
+def process_data(batch_size=100, validate=False):
+    # Use parameters in task logic
+    print(f"Processing with batch size {batch_size}")
+    # ...
+```
+
+2. **Pass parameters when calling `uses()`**:
+```python
+@Task(name="generate_report")
+def generate_report():
+    # Pass parameters to upstream task
+    data = uses("process_data", batch_size=200, validate=True)
+    # ...
+```
+
+3. **Pass parameters when running a task directly**:
+```python
+# Run with custom parameters
+result = run_task("process_data", batch_size=500, validate=True)
+```
+
+Parameters are passed down to the task function and cached based on their values. Each unique combination of a task and parameters is cached separately.
+
+Check out the `examples/parameter_example.py` file for more detailed examples of parameter passing.
 
 ## Development
 
