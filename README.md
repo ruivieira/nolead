@@ -11,6 +11,7 @@ A lightweight pipeline orchestration library.
 - Clean task completion with `done()` function
 - Single entry point to run entire pipelines with `run_task()`
 - Parameter passing between tasks, similar to Luigi
+- Task dependency visualization with parameter information
 
 ## Installation
 
@@ -99,6 +100,87 @@ result = run_task("process_data", batch_size=500, validate=True)
 Parameters are passed down to the task function and cached based on their values. Each unique combination of a task and parameters is cached separately.
 
 Check out the `examples/parameter_example.py` file for more detailed examples of parameter passing.
+
+### Pipeline Visualization
+
+NoLead supports visualization of task dependencies, including the parameters passed between tasks:
+
+```python
+from nolead import generate_dependency_graph
+
+# Generate a DOT file for the entire pipeline
+generate_dependency_graph("pipeline.dot", output_format="dot")
+
+# Generate a text representation of the dependencies
+generate_dependency_graph("pipeline.txt", output_format="text")
+```
+
+#### Graphical Visualization
+
+To render the DOT file as an image, you can use Graphviz:
+
+```bash
+dot -Tpng pipeline.dot -o pipeline.png
+```
+
+For example, this pipeline with parameters:
+
+```python
+@Task(name="fetch_data")
+def fetch_data(source="database", limit=10):
+    # ... implementation ...
+    return data
+
+@Task(name="process_data")
+def process_data(transformation="double"):
+    # Pass specific parameters to the upstream task
+    data = uses("fetch_data", source="api", limit=5)
+    # ... implementation ...
+    return done(result)
+
+@Task(name="analyze_data")
+def analyze_data(method="sum"):
+    # Pass specific parameters to the upstream task
+    data = uses("process_data", transformation="square")
+    # ... implementation ...
+    return done(result)
+
+@Task(name="format_results")
+def format_results(format_type="text"):
+    # Pass specific parameters to the upstream task
+    value = uses("analyze_data", method="avg")
+    # ... implementation ...
+    return done(result)
+```
+
+When visualized with Graphviz, shows the parameters passed between tasks:
+
+![Pipeline Visualization Example](docs/parameter_graph.png)
+
+#### Text-Based Visualization
+
+Alternatively, you can use the text-based visualization:
+
+```
+Pipeline Dependency Graph with Parameters
+===============================
+
+fetch_data [SOURCE]
+  |
+  | (limit=5, source=api)
+  v
+process_data [INTERMEDIATE]
+  |
+  | (transformation=square)
+  v
+analyze_data [INTERMEDIATE]
+  |
+  | (method=avg)
+  v
+format_results [SINK]
+```
+
+This text representation clearly shows the flow of data and the parameters passed between tasks.
 
 ## Development
 

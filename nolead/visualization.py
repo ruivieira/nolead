@@ -1,9 +1,10 @@
 """Visualization utilities for task dependency graphs and pipeline information."""
 
 import datetime
-from typing import Dict, List, Optional, Set
+import json
+from typing import Dict, List, Optional, Set, Tuple, Any
 
-from nolead.core import _TASKS
+from nolead.core import _TASKS, _TASK_RESULTS
 from nolead.logging import get_logger
 
 logger = get_logger()
@@ -32,6 +33,37 @@ def generate_dependency_graph(
         return _generate_text_graph(output_file, include_tasks)
     else:
         raise ValueError(f"Unsupported format: {output_format}")
+
+
+def _extract_task_parameters() -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """Extract parameters passed between tasks from the task results cache.
+    
+    Returns:
+        A dictionary with (source_task, target_task) tuples as keys and parameter dictionaries as values
+    """
+    parameters = {}
+    
+    # Process task keys that include parameters
+    for task_key in _TASK_RESULTS.keys():
+        if "(" in task_key:
+            task_name = task_key.split("(")[0]
+            param_str = task_key.split("(")[1].rstrip(")")
+            
+            # Parse parameters
+            params = {}
+            if param_str:
+                param_pairs = param_str.split(",")
+                for pair in param_pairs:
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        params[k] = v
+            
+            # Find task dependencies that use this task
+            for other_task_name, task in _TASKS.items():
+                if task_name in task.dependencies:
+                    parameters[(task_name, other_task_name)] = params
+    
+    return parameters
 
 
 def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) -> str:
@@ -66,6 +98,9 @@ def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) ->
                 if dep in dependents_map:
                     dependents_map[dep].add(task_name)
 
+    # Extract parameters passed between tasks
+    task_parameters = _extract_task_parameters()
+
     # Identify sources, intermediates, and sinks
     sources = []
     intermediates = []
@@ -86,7 +121,7 @@ def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) ->
     dot_content.append("  rankdir=LR;")
     dot_content.append('  bgcolor="#FFFDF5";')
     dot_content.append('  fontname="Arial";')
-    dot_content.append("  concentrate=true;")  # Merge edges
+    dot_content.append("  concentrate=false;")  # Don't merge edges to show parameters
     dot_content.append("  nodesep=0.5;")
     dot_content.append("  ranksep=0.8;")
     dot_content.append("  splines=curved;")  # Curved edges
@@ -114,7 +149,9 @@ def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) ->
     dot_content.append("  edge [")
     dot_content.append('    color="#666666",')
     dot_content.append("    arrowsize=0.8,")
-    dot_content.append("    penwidth=1.2")
+    dot_content.append("    penwidth=1.2,")
+    dot_content.append('    fontname="Arial",')
+    dot_content.append("    fontsize=10")
     dot_content.append("  ];")
 
     # Add source nodes (green)
@@ -136,13 +173,20 @@ def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) ->
         dot_content.append(f'    "{task_name}" [fillcolor="#CCECFF"];')  # Light blue
     dot_content.append("  }")
 
-    # Add edges
+    # Add edges with parameters
     dot_content.append("  // Edges")
     for task_name, task in _TASKS.items():
         if task_name in tasks_to_include:
             for dep in task.dependencies:
                 if dep in tasks_to_include:
-                    dot_content.append(f'  "{dep}" -> "{task_name}";')
+                    # Check if we have parameters for this connection
+                    edge_params = task_parameters.get((dep, task_name), {})
+                    if edge_params:
+                        # Format parameters as a label
+                        param_label = ", ".join([f"{k}={v}" for k, v in edge_params.items()])
+                        dot_content.append(f'  "{dep}" -> "{task_name}" [label="{param_label}"];')
+                    else:
+                        dot_content.append(f'  "{dep}" -> "{task_name}";')
 
     dot_content.append("}")
 
@@ -157,6 +201,9 @@ def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) ->
 def _generate_text_graph(output_file: str, include_tasks: Optional[List[str]]) -> str:
     """Generate a text representation of the dependency graph."""
     tasks_to_include = set(include_tasks) if include_tasks else set(_TASKS.keys())
+    
+    # Extract parameters passed between tasks
+    task_parameters = _extract_task_parameters()
 
     # Create the graph content
     text_content = ["Pipeline Dependency Graph", "========================", ""]
@@ -173,7 +220,13 @@ def _generate_text_graph(output_file: str, include_tasks: Optional[List[str]]) -
             if deps:
                 text_content.append("  Dependencies:")
                 for dep in sorted(deps):
-                    text_content.append(f"    - {dep}")
+                    # Check if we have parameters for this connection
+                    edge_params = task_parameters.get((dep, task_name), {})
+                    if edge_params:
+                        param_str = ", ".join([f"{k}={v}" for k, v in edge_params.items()])
+                        text_content.append(f"    - {dep} (params: {param_str})")
+                    else:
+                        text_content.append(f"    - {dep}")
             else:
                 text_content.append("  Dependencies: None")
 
@@ -198,8 +251,17 @@ def print_task_info(task_name: str) -> None:
     print(f"Function: {task.task_func.__name__ if task.task_func else 'None'}")
     print(f"Dependencies ({len(task.dependencies)}):")
 
+    # Extract parameters for this task's dependencies
+    task_parameters = _extract_task_parameters()
+
     for dep in sorted(task.dependencies):
-        print(f"  - {dep}")
+        # Check if we have parameters for this dependency
+        edge_params = task_parameters.get((dep, task_name), {})
+        if edge_params:
+            param_str = ", ".join([f"{k}={v}" for k, v in edge_params.items()])
+            print(f"  - {dep} (params: {param_str})")
+        else:
+            print(f"  - {dep}")
 
     # Find tasks that depend on this task
     dependents = []
@@ -209,4 +271,10 @@ def print_task_info(task_name: str) -> None:
 
     print(f"Dependents ({len(dependents)}):")
     for dep in sorted(dependents):
-        print(f"  - {dep}")
+        # Check if we have parameters for this dependent
+        edge_params = task_parameters.get((task_name, dep), {})
+        if edge_params:
+            param_str = ", ".join([f"{k}={v}" for k, v in edge_params.items()])
+            print(f"  - {dep} (params: {param_str})")
+        else:
+            print(f"  - {dep}")
