@@ -44,7 +44,7 @@ class Task:
         return cast(F, wrapper)
 
 
-def uses(task_name_or_func: Any) -> Any:
+def uses(task_name_or_func: Any, **kwargs: Any) -> Any:
     """Define a dependency on another task and get its result."""
     if callable(task_name_or_func) and hasattr(task_name_or_func, "_task"):
         task_name = (
@@ -59,14 +59,14 @@ def uses(task_name_or_func: Any) -> Any:
         logger.warning(
             "Could not get current frame, dependency tracking may not work correctly"
         )
-        return run_task(task_name)
+        return run_task(task_name, **kwargs)
 
     calling_frame = frame.f_back
     if calling_frame is None:
         logger.warning(
             "Could not get caller frame, dependency tracking may not work correctly"
         )
-        return run_task(task_name)
+        return run_task(task_name, **kwargs)
 
     calling_func_name = calling_frame.f_code.co_name
 
@@ -78,7 +78,7 @@ def uses(task_name_or_func: Any) -> Any:
             break
 
     # Return the result of the dependency
-    return run_task(task_name)
+    return run_task(task_name, **kwargs)
 
 
 def done(result: Optional[T] = None) -> Optional[T]:
@@ -86,7 +86,7 @@ def done(result: Optional[T] = None) -> Optional[T]:
     return result
 
 
-def run_task(task_name_or_func: Any) -> Any:
+def run_task(task_name_or_func: Any, **override_params: Any) -> Any:
     """Run a task and all its dependencies."""
     # Get the task
     if callable(task_name_or_func) and hasattr(task_name_or_func, "_task"):
@@ -98,10 +98,16 @@ def run_task(task_name_or_func: Any) -> Any:
             raise ValueError(f"Task '{task_name}' not found")
         task = _TASKS[task_name]
 
-    # If already executed, return the cached result
-    if task_name in _EXECUTED_TASKS:
-        logger.debug("Task '%s' already executed, returning cached result", task_name)
-        return _TASK_RESULTS.get(task_name)
+    # Create a task key that includes parameters
+    task_key = task_name
+    if override_params:
+        param_str = ",".join(f"{k}={v}" for k, v in sorted(override_params.items()))
+        task_key = f"{task_name}({param_str})"
+
+    # If already executed with these parameters, return the cached result
+    if task_key in _TASK_RESULTS:
+        logger.debug("Task '%s' already executed with given parameters, returning cached result", task_key)  # noqa: E501
+        return _TASK_RESULTS[task_key]
 
     logger.info("Running task: %s", task_name)
 
@@ -114,12 +120,12 @@ def run_task(task_name_or_func: Any) -> Any:
     result = None
     if task.task_func:
         try:
-            result = task.task_func()
-            # Cache the result
-            _TASK_RESULTS[task_name] = result
-            # Mark task as executed
-            _EXECUTED_TASKS.add(task_name)
-            logger.info("Completed task: %s", task_name)
+            result = task.task_func(**override_params)
+            # Cache the result with parameters
+            _TASK_RESULTS[task_key] = result
+            # Add to executed tasks set
+            _EXECUTED_TASKS.add(task_key)
+            logger.info("Completed task: %s", task_key)
         except Exception as e:
             logger.error("Error executing task '%s': %s", task_name, str(e))
             raise
