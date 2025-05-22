@@ -157,30 +157,114 @@ When visualized with Graphviz, shows the parameters passed between tasks:
 
 ![Pipeline Visualization Example](docs/parameter_graph.png)
 
+### Parallel Task Execution
+
+NoLead supports running multiple tasks in parallel and visualizing parallel task groups in the pipeline graph.
+
+```python
+from nolead import Task, uses, parallel, run_task
+
+@Task()
+def fetch_data():
+    # ... implementation ...
+    return data
+
+@Task()
+def process_data():
+    raw_data = uses(fetch_data)
+    # ... implementation ...
+    return processed_data
+
+@Task()
+def calculate_sum():
+    data = uses(process_data)
+    # ... implementation ...
+    return {"sum": sum(data)}
+
+@Task()
+def calculate_average():
+    data = uses(process_data)
+    # ... implementation ...
+    return {"average": sum(data) / len(data)}
+
+@Task()
+def generate_report():
+    # Run calculations in parallel
+    results = parallel([calculate_sum, calculate_average])
+
+    # Access results from each parallel task
+    sum_result = results["calculate_sum"]["sum"]
+    avg_result = results["calculate_average"]["average"]
+
+    return {"summary": f"Sum: {sum_result}, Average: {avg_result}"}
+```
+
+#### Parallel Task Visualization
+
+Parallel tasks are visualized with special styling in the dependency graph:
+
+1. In DOT format (Graphviz):
+   - Parallel tasks are grouped in a subgraph with a dashed border
+   - Edges connecting to parallel task groups have a dashed, bold style
+
+2. In text format:
+   - Parallel tasks are listed as a separate section
+   - Tasks that are part of parallel groups are marked with `[parallel]`
+
+Example of a pipeline with parallel tasks visualized with Graphviz:
+
+![Parallel Tasks Visualization](docs/parallel_tasks_visualization.png)
+
+The visualization clearly shows which tasks are executed in parallel (calculate_sum and calculate_average), making the pipeline structure easier to understand.
+
+#### Parallel Task Result Format
+
+When using `parallel()`, the results are returned as a dictionary where:
+- Keys are the task names
+- Values are the return values from each task
+
+```python
+results = parallel([task1, task2])
+# Results will be:
+# {
+#   "task1": {"result": "data from task1"},
+#   "task2": {"result": "data from task2"}
+# }
+```
+
+For more detailed information on parallel task execution, see [the parallel tasks documentation](docs/parallel_tasks.md) and [our detailed example](docs/parallel_tasks_example.md).
+
 #### Text-Based Visualization
 
 Alternatively, you can use the text-based visualization:
 
 ```
-Pipeline Dependency Graph with Parameters
-===============================
+Pipeline Dependency Graph
+========================
 
-fetch_data [SOURCE]
-  |
-  | (limit=5, source=api)
-  v
-process_data [INTERMEDIATE]
-  |
-  | (transformation=square)
-  v
-analyze_data [INTERMEDIATE]
-  |
-  | (method=avg)
-  v
-format_results [SINK]
+Parallel Task Groups:
+  Group 1: calculate_average, calculate_sum
+
+Task: calculate_average
+  Dependencies:
+    - process_data
+
+Task: calculate_sum
+  Dependencies:
+    - process_data
+
+Task: fetch_data
+  Dependencies: None
+
+Task: generate_report
+  Dependencies:
+    - calculate_average [parallel]
+    - calculate_sum [parallel]
+
+Task: process_data
+  Dependencies:
+    - fetch_data
 ```
-
-This text representation clearly shows the flow of data and the parameters passed between tasks.
 
 ## Development
 

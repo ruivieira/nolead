@@ -3,7 +3,7 @@
 import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from nolead.core import _TASK_RESULTS, _TASKS
+from nolead.core import _PARALLEL_GROUPS, _TASK_RESULTS, _TASKS
 from nolead.logging import get_logger
 
 logger = get_logger()
@@ -173,6 +173,27 @@ def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) ->
         dot_content.append(f'    "{task_name}" [fillcolor="#CCECFF"];')  # Light blue
     dot_content.append("  }")
 
+    # Create subgraphs for parallel task groups
+    if _PARALLEL_GROUPS:
+        dot_content.append("  // Parallel task groups")
+        for group_idx, (_, group_tasks) in enumerate(_PARALLEL_GROUPS.items()):
+            # Filter to only include tasks that are in our visualization
+            included_tasks = [t for t in group_tasks if t in tasks_to_include]
+            if included_tasks:
+                subgraph_name = f"cluster_parallel_{group_idx}"
+                dot_content.append(f"  subgraph {subgraph_name} {{")
+                dot_content.append('    label="Parallel Tasks";')
+                dot_content.append('    style="rounded,dashed";')
+                dot_content.append('    color="#5555AA";')
+                dot_content.append('    fontcolor="#5555AA";')
+                dot_content.append('    bgcolor="#F0F0FF";')  # Light blue background
+                # Make sure the parallel tasks are at the same rank
+                dot_content.append("    { rank=same; ")
+                for task_name in included_tasks:
+                    dot_content.append(f'      "{task_name}";')
+                dot_content.append("    }")
+                dot_content.append("  }")
+
     # Add edges with parameters
     dot_content.append("  // Edges")
     for task_name, task in _TASKS.items():
@@ -181,16 +202,29 @@ def _generate_dot_graph(output_file: str, include_tasks: Optional[List[str]]) ->
                 if dep in tasks_to_include:
                     # Check if we have parameters for this connection
                     edge_params = task_parameters.get((dep, task_name), {})
+
+                    # Check if this is part of a parallel group
+                    is_parallel_edge = False
+                    for group_tasks in _PARALLEL_GROUPS.values():
+                        if dep in group_tasks and task_name not in group_tasks:
+                            is_parallel_edge = True
+                            break
+
+                    # Set edge style based on whether it's part of a parallel group
+                    edge_style = ""
+                    if is_parallel_edge:
+                        edge_style = ' style="bold,dashed" color="#5555AA" penwidth=1.5'
+
                     if edge_params:
                         # Format parameters as a label
                         param_label = ", ".join(
                             [f"{k}={v}" for k, v in edge_params.items()]
                         )
                         dot_content.append(
-                            f'  "{dep}" -> "{task_name}" [label="{param_label}"];'
+                            f'  "{dep}" -> "{task_name}" [label="{param_label}"{edge_style}];'  # noqa: E501
                         )
                     else:
-                        dot_content.append(f'  "{dep}" -> "{task_name}";')
+                        dot_content.append(f'  "{dep}" -> "{task_name}"{edge_style};')
 
     dot_content.append("}")
 
@@ -212,6 +246,18 @@ def _generate_text_graph(output_file: str, include_tasks: Optional[List[str]]) -
     # Create the graph content
     text_content = ["Pipeline Dependency Graph", "========================", ""]
 
+    # Add information about parallel task groups
+    if _PARALLEL_GROUPS:
+        text_content.append("Parallel Task Groups:")
+        for group_idx, (_, group_tasks) in enumerate(_PARALLEL_GROUPS.items()):
+            # Filter to only include tasks that are in our visualization
+            included_tasks = [t for t in group_tasks if t in tasks_to_include]
+            if included_tasks:
+                text_content.append(
+                    f"  Group {group_idx + 1}: {', '.join(included_tasks)}"
+                )
+        text_content.append("")  # Empty line
+
     # Build a dependency tree
     for task_name in sorted(tasks_to_include):
         if task_name in _TASKS:
@@ -226,13 +272,26 @@ def _generate_text_graph(output_file: str, include_tasks: Optional[List[str]]) -
                 for dep in sorted(deps):
                     # Check if we have parameters for this connection
                     edge_params = task_parameters.get((dep, task_name), {})
+
+                    # Check if this is part of a parallel group
+                    is_parallel = False
+                    for group_tasks in _PARALLEL_GROUPS.values():
+                        if dep in group_tasks and task_name not in group_tasks:
+                            is_parallel = True
+                            break
+
+                    # Add a marker for parallel tasks
+                    parallel_marker = " [parallel]" if is_parallel else ""
+
                     if edge_params:
                         param_str = ", ".join(
                             [f"{k}={v}" for k, v in edge_params.items()]
                         )
-                        text_content.append(f"    - {dep} (params: {param_str})")
+                        text_content.append(
+                            f"    - {dep}{parallel_marker} (params: {param_str})"
+                        )
                     else:
-                        text_content.append(f"    - {dep}")
+                        text_content.append(f"    - {dep}{parallel_marker}")
             else:
                 text_content.append("  Dependencies: None")
 
@@ -260,14 +319,35 @@ def print_task_info(task_name: str) -> None:
     # Extract parameters for this task's dependencies
     task_parameters = _extract_task_parameters()
 
+    # Check if this task is part of any parallel groups
+    in_parallel_groups = []
+    for group_name, group_tasks in _PARALLEL_GROUPS.items():
+        if task_name in group_tasks:
+            in_parallel_groups.append((group_name, group_tasks))
+
+    if in_parallel_groups:
+        print("Parallel Groups:")
+        for group_name, group_tasks in in_parallel_groups:
+            print(f"  - {group_name}: {', '.join(sorted(group_tasks))}")
+
     for dep in sorted(task.dependencies):
         # Check if we have parameters for this dependency
         edge_params = task_parameters.get((dep, task_name), {})
+
+        # Check if this is a parallel dependency
+        is_parallel = False
+        for _, group_tasks in in_parallel_groups:
+            if dep in group_tasks:
+                is_parallel = True
+                break
+
+        parallel_marker = " [parallel]" if is_parallel else ""
+
         if edge_params:
             param_str = ", ".join([f"{k}={v}" for k, v in edge_params.items()])
-            print(f"  - {dep} (params: {param_str})")
+            print(f"  - {dep}{parallel_marker} (params: {param_str})")
         else:
-            print(f"  - {dep}")
+            print(f"  - {dep}{parallel_marker}")
 
     # Find tasks that depend on this task
     dependents = []
